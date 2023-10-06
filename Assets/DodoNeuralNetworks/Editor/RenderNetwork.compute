@@ -1,0 +1,86 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+#define Thickness 0.003
+
+// Render output
+RWTexture2D<float4> _Result;
+// Node positions matrix - grid showing which node spaces are occupied
+Texture2D<float4> _NodeLookupTexture;
+// Positions output from previous compute shader
+//StructuredBuffer<float4> _NodePositions;
+uniform int _NodeCount;
+uniform int _LargestLayerSize;
+StructuredBuffer<int> _NetworkSize;
+// Spacing info
+uniform float _NodeSpacing;
+uniform float _LayerSpacing;
+uniform float _NodeSize;
+// Screen position info
+uniform float2 _Offset;
+uniform float _Zoom;
+// Color modes
+// 0 = BY_VALUE, 1 = BY_<X>
+uniform int _NodeColorMode;
+uniform int _ConnectionColorMode;
+// Node gradient values
+uniform float4 _NodeLowColor;
+uniform float4 _NodeHighColor;
+// Connection gradient values
+uniform float4 _ConnectionLowColor;
+uniform float4 _ConnectionHighColor;
+
+/*
+float DrawLine(float2 p1, float2 p2, float2 uv) {
+    float a = abs(distance(p1, uv));
+    float b = abs(distance(p2, uv));
+    float c = abs(distance(p1, p2));
+
+    if ( a >= c || b >=  c ) return 0.0;
+
+    float p = (a + b + c) * 0.5;
+
+    // median to (p1, p2) vector
+    float h = 2 / c * sqrt( p * ( p - a) * ( p - b) * ( p - c));
+
+    return mix(1.0, 0.0, smoothstep(0.5 * Thickness, 1.5 * Thickness, h));
+}*/
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    float2 pos = (id.xy * _Zoom);
+    // Pixel coords are inverted from unity GUI coords
+    pos.x -= _Offset.x;
+    pos.y += _Offset.y;
+
+    // Find network layer and node coords
+    float layer = round(pos.x / _LayerSpacing);
+    // Centering offset
+    float nodeOffset = (_LargestLayerSize - _NetworkSize[layer]) / 2.0;
+    pos.y -= nodeOffset * _NodeSpacing;
+    float node = round(pos.y / _NodeSpacing);// + nodeOffset;
+
+    // Determine if we are in a node space
+    bool h = pos.x % _LayerSpacing < _NodeSize && pos.x > 0;
+    bool v = pos.y % _NodeSpacing < _NodeSize && pos.y > 0;
+    if (!h || !v) {
+        _Result[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+        return;
+    } else {
+        // Lookup values from lookup texture
+        float2 lookup = float2(layer, node);
+        float occupied = _NodeLookupTexture[lookup.xy].a;
+        // Make sure to bring values up from -1>1 to 0>1
+        float nodeValue = _NodeLookupTexture[lookup.xy].r;
+        float nodeBias = _NodeLookupTexture[lookup.xy].b;
+        
+        float4 resColor = float4(0.0, 0.0, 0.0, 0.0);
+        // Value color mode
+        if (_NodeColorMode == 0) resColor = lerp(_NodeLowColor, _NodeHighColor, nodeValue);
+        // Bias color mode
+        if (_NodeColorMode == 1) resColor = lerp(_NodeLowColor, _NodeHighColor, nodeBias);
+        resColor.a = occupied;
+        // Return color
+        _Result[id.xy] = resColor;
+    }
+}

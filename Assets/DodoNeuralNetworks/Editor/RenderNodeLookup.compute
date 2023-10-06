@@ -1,0 +1,32 @@
+// Each #kernel tells which function to compile; you can have many kernels
+#pragma kernel CSMain
+
+// For data lookups
+struct NodeValue {
+    float value;
+    float bias;
+};
+
+// Node grid positions buffer
+RWTexture2D<float4> _Result;
+StructuredBuffer<int> _NetworkSize;
+StructuredBuffer<NodeValue> _NodeValues;
+uniform int _LayerCount;
+uniform int _LargestLayerSize;
+
+float Normalize (float value) {
+    return (value + 1.0) / 2.0;
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    int layer = id.x;
+    int node = id.y;
+    int nodeIdx = (layer * _LargestLayerSize) + node;
+    if (layer >= _LayerCount || node >= _NetworkSize[layer] || node < 0) {
+        _Result[id.xy] = float4(0.0, 0.0, 0.0, 0.0);
+    } else {
+        _Result[id.xy] = float4(Normalize(_NodeValues[nodeIdx].value), 0.0, Normalize(_NodeValues[nodeIdx].bias), 1.0);
+    }
+}
